@@ -10,8 +10,11 @@ abstract class Entity
 	public $lang='rus'; // язык, на котором будут выводиться сообщения.
 	public $prefix=''; // для ввода, если в форме есть несколько сущностей данного типа.
 	static $lastid=0; // номер последней созданной сущности. счёт начинается с 1.
-	public $id=0; // идентификатор данной сущности.
+	public $id=0; // идентификатор данной сущности внутри прогона программы.
+	public $uni=0; // идентификатор сущности, имеющей собственную отдельную запись в БД. есть не у всех.
+	
 	public $data=array(); // данные сущности.
+	public $rules=array(); // сопутствующая информация о том, как отображать и хранить сущность.
 	public $toretrieve=array(); // область запросов к базе данных (если не указана, то "всё").
 	public $valid='nodata'; // статус содержимого, имеет одно из следующих значений:
 	// nodata - нет данных.
@@ -22,15 +25,23 @@ abstract class Entity
 	public function __construct($args='')
 	{
 		// все дочерние классы используют этот же счётчик, чтобы идентификатор всегда был уникальным.
+		// это идентификатор используется для общения сущностей между собой во время операций и не имеет отношения к идентификатору, хранящемуся в базе данных.
 		Entity::$lastid++;
 		$this->id=Entity::$lastid;
 		
 		// в массиве $args содержатся аргументы и опции для создания сущности. их точный состав неизвестен, но создаваться всё должно по одному принципу, так что используется массив.
-		// для удобства дебага оставлене возможность указать один только префикс.
-		if (is_string($args)) $prefix=$args;
-		elseif (is_array($args)) $prefix=(string)($args['prefix']);
+		if (is_array($args))
+		{
+			$prefix=(string)($args['prefix']);
+			if (array_key_exists('storage', $args)) $this->rules['storage']=$args['storage'];
+		}
 		
 		$this->prefix=$prefix;
+	}
+	
+	public function entity_type()
+	{
+		return substr(get_class($this), 7);
 	}
 	
 	public function req() { } // постановка запроса на получение из базы данных.
@@ -40,9 +51,31 @@ abstract class Entity
 		Retriever::retrieve($this->toretrieve);
 	}
 	
-	public abstract function input($input=false, $ready=false); // пользовательский ввод через форму, ссылку или заранее извлечённые данные.
+	// пользовательский ввод через форму, ссылку или заранее извлечённые данные.
 	// $input -  массив с заранее извлечёнными данными. если указан, то используется вместо $_GET и $_POST
-	// $ready - если истина, то данные не проверяются и не корректируются, считаясь сразу допустимыми.
+	// $ready - если истина, то данные не проверяются и не корректируются, считаясь сразу допустимыми.	
+	public function input($input=false, $ready=false)
+	{
+		$this->do_input($input); // делает непосредственный ввод данных в $data.
+		$this->after_input($ready); // обезопасивает данные, проверяет их допустимость и так далее.
+	}
+	
+	public abstract function do_input($input);
+	
+	public function after_input($ready=false)
+	{
+		if ($ready) $this->valid='valid'; // этот параметр инструктирует функцию пропустить проверки. ТОЛЬКО для случаев, когда данные уже точно проверены! к примеру, получены из базы данных.
+		else
+		{
+			if (!is_null($this->data['value'])) // если есть данные...
+			{
+				$this->invalidate(); // установить, что данные есть, но их допустимость неизвестна.
+				$this->safe(); // обезопасить!
+				$this->validate(1); // проверить допустимость (насильно).
+			}
+			else $this->clear(); // если данных нет, то запомнить, что их нет.
+		}
+	}
 	
 	public abstract function safe(); // исключение небезопасных значений при пользовательском вводе. корректирует данные.
 	
@@ -71,6 +104,8 @@ abstract class Entity
 	}
 	
 	public abstract function display($style='raw'); // показ данных.
+	
+	public abstract function store($rules=''); // сохранение данных. STUB - пока что только получение запросов.
 }
 
 #############################
@@ -81,6 +116,8 @@ abstract class Entity
 abstract class Entity_combo extends Entity
 {
 	public $model=array(); // модель, по которой строятся внутренние сущности. STUB
+	// модель также должна давать сущности-комбо сведения о том, какие подсущности соответствуют полям в отдельных таблицах, а какие - полноценные прогрессивные сущности с уникальными идентификаторами. подобная двойственность нужна для гармоничного перехода сайта с одного метода на другой, а также при интеграции с движками, использующими первый метод (MediaWiki, BattleEngine...).
+	
 	public $entities=array(); // массив со всеми внутренними сущностями, по номеру
 	public $byrole=array();  // массив со всеми внутренними сущностями, по роли (внутри роли может быть нумерация)
 	public $rolebyid=array(); // массив ролей по идентификатору сущности. нужен для удаления сущности из списка по ролям, чтобы не перебирать.
@@ -107,6 +144,7 @@ abstract class Entity_combo extends Entity
 			// это аргументы, которые передаются конструктору.
 			if (is_array($this->model[$role]['new_args'])) $args=$this->model[$role]['new_args'];
 			else $args=array();
+			if (array_key_exists('storage', $this->model[$role])) $args['storage']=$this->model[$role]['storage'];
 			
 			// префикс должен совпадать с родительским объектом.
 			$args['prefix']=$this->prefix;
@@ -119,15 +157,15 @@ abstract class Entity_combo extends Entity
 	
 	// когда требуется ввод, то команда передаётся всем внутренним объектам по очереди.
 	// данные могут приходить сверху, особенно если комбинированный объект представляет единую запись в базе данных.
-	public function input($input=false, $ready=false)
+	public function do_input($input=false)
 	{
 		foreach ($this->entities as $entity)
 		{
-			$entity->input($input, $ready);
+			$entity->do_input($input);
 		}
 	}
 	
-	public function listFormat() // функция для дебага: конструирует простой формат вывода.
+	public function listFormat() // DEBUG! функция для дебага: конструирует простой формат вывода.
 	{
 		$format=array();
 		foreach ($this->model as $role=>$options)
@@ -224,50 +262,21 @@ abstract class Entity_combo extends Entity
 	// демонстрирует данные.
 	public function display($style='raw')
 	{
-		$this->style=$style; // приходится использовать переменную, потому что нет возможности удобно передавать аргументы в callback (по крайней мере до php 5.4, а его ещё надо поставить, да и там, кажется, только для анонимных функций.
-		
-		// на демонстрацию внутренних сущностей заменяется следующая конструкция:
-		// %роль% - показывает сущность данной роли с индексом 0.
-		// %роль~%- показывает все сущности данной роли. Часто это всего одна. Если их несколько, они просто клеются подряд (STUB).
-		// %роль20% - показывает сущность данной роли с индексом 20.
-		// %роль20[title]% - показывает стиль "title" сущности с индексом 20 и указанной ролью.
-		// %роль~[title]- показывает все сущности данной роли в стиле title.
-		
-		$result=preg_replace_callback(
-			'/%(?<role>[a-z]+)(?<index>\d*|~)(\[(?<style>[a-z]+)\])?%/i',
-			array($this, 'display_subentity'),
-			$this->format
-			);
-		return $result;
+		// управление передаётся подгружаемому статичному методу, чтобы спрятать код, нужный лишь эпизодически.	
+		return EntityDisplay::display_combo($this, $style);
 	}
 	
-	// обычно вызывается командой preg_replace_callback из предыдущей функции.
+	// обычно вызывается командой preg_replace_callback из предыдущей функции, а также иногда может вызываться отдельно.
 	public function display_subentity($role, $index=null, $style='')
 	{
-		if (is_array($role)) // когда вызывается как callback, то разбираем аргументы по полочкам и вызываем заново. это сделано для удобства записи вызова обычным образом.
-		{
-			$m=$role;
-			return $this->display_subentity($m['role'], $m['index'], $m['style']);
-		}
-		
-		$result='';
-		if ($role=='') $role='norole';
-		if ($style=='') $style=$this->style; // во время preg_replace_callback в эту переменную записывается стиль по умолчанию.
-		if ($index==='~') // если указано показать все...
-		{
-			foreach ($this->byrole[$role] as $index=>$entity)
-			{
-				$result.=$this->display_subentity($role, $index, $style); // перебираем и складываем. STUB! очевидно, формат сложения должен быть в $model
-			}
-		}
-		else
-		{
-			$index=(int)($index); // если индекса нет, он становится нулём.
-			// если внутренняя сущность задана, обращаемся к ней. иначе выдаём знак вопроса.
-			if (isset($this->byrole[$role][$index])) $result=$this->byrole[$role][$index]->display($style);
-			else $result='?'; // STUB
-		}
-		return $result;		
+		// управление передаётся подгружаемому статичному методу, чтобы спрятать код, нужный лишь эпизодически.
+		return EntityDisplay::display_subentity($this, $role, $index, $style);
+	}
+	
+	//STUB - только возвращает запрос и не проверяет допустимость значений.
+	public function store($rules='')
+	{
+		return EntityStorage::store_combo($this, $rules);
 	}
 }
 
@@ -281,31 +290,19 @@ abstract class Entity_value extends Entity
 	public function __construct($args='')
 	{
 		parent::__construct($args);
-		$this->data['html_name']=(string)($args['html_name']); // нужно как в случае ввода из формы, так и чтобы разобрать массив данных $input, скинутый свыше.
-		$this->data['title']=$this->data['html_name']; // STUB. в будущем будет браться из словаря.
+		$this->rules['html_name']=(string)($args['html_name']); // нужно как в случае ввода из формы, так и чтобы разобрать массив данных $input, скинутый свыше.
+		$this->rules['title']=$this->rules['html_name']; // STUB. в будущем будет браться из словаря.
 	}
 	
 	// наконец-то что-то показываем!
-	// STUB: в будущем тут должны быть обработчики текста для показа в html и текстовом поле.
-	// STUB: эта функция не учитывает допустимости данных.
-	// текущие стили:
-	// raw - тупо основное значение, без оформления.
-	// rawtitle - тупо заголовок, без оформления.
-	// title - заголовок с оформлением.
-	// view - оформленный заголовок и далее значение.
-	// input - оформленный заголовок и далее поле ввода.
 	public function display($style='raw')
 	{
-		if ($style=='raw') $result= $this->data['value'];
-		elseif ($style=='rawtitle') $result= $this->data['title'];
-		elseif ($style=='title') $result= '<strong>'.$this->data['title'].'</strong>: ';
-		elseif ($style=='view') $result= $this->display('title').' '.$this->data['value'];
-		elseif ($style=='input') $result= $this->display('title').'<input type=text name="'.$this->input_name().'" value="'.htmlspecialchars($this->data['value']).'" />';
-		return $result;
+		// управление передаётся подгружаемому статичному методу, чтобы спрятать код, нужный лишь эпизодически.	
+		return EntityDisplay::display_value($this, $style);
 	}
 	
 	// этой функцией (и дочерними) осуществляется весь пользовательский ввод и львиная доля ввода из БД.
-	public function input($input=false, $ready=false)
+	public function do_input($input=false)
 	{
 		$val=null;	
 		if ($input===false) // если предлагается брать значения из вводе пользователя...
@@ -317,28 +314,24 @@ abstract class Entity_value extends Entity
 		}
 		else // если предлагается разобрать массив данных, к примеру, полученный из базы данных...
 		{
-			$name=$this->data['html_name']; // префикс не используется, потому что нет необходимости отличать ввод однородных объектов в единой форме;
+			$name=$this->rules['html_name']; // префикс не используется, потому что нет необходимости отличать ввод однородных объектов в единой форме;
 			if (array_key_exists($name, $input)) $val=$input[$name];
 		}
 		
 		$this->data['value']=$val; // даже если значение не было найдено, нужно записать это в данные.
 		
-		if ($ready) $this->valid='valid'; // этот параметр инструктирует функцию пропустить проверки. ТОЛЬКО для случаев, когда данные уже точно проверены! к примеру, получены из базы данных.
-		else
-		{
-			if (!is_null($val)) // если есть данные...
-			{
-				$this->safe(); // обезопасить!
-				$this->validate(1); // проверить допустимость (насильно).
-			}
-			else $this->clear(); // если данных нет, то запомнить, что их нет.
-		}
-	}	
+	}
 	
 	public function input_name() // конструирует имя поля ввода. в принципе, можно было бы использовать кэш, но операция не затратная.
 	{
 		return $this->prefix.'_'.$this->html_name;
 	}
+	
+	//STUB - только возвращает запрос и не проверяет допустимость значений.
+	public function store($rules='')
+	{
+		return EntityStorage::store_value($this, $rules);
+	}	
 }
 
 // текстовые данные.
@@ -433,21 +426,37 @@ class Entity_translation extends Entity_combo
 	public $model=array(
 		'rus'=>array(
 			'class'=>'text',
+			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'eng'=>array(
-			'class'=>'text'
+			'class'=>'text',
+			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'jap'=>array(
-			'class'=>'text'
+			'class'=>'text',
+			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'jap_kana'=>array(
 			'optional'=>1,
-			'class'=>'text'
+			'class'=>'text',
+			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
+		),
+		'ukr'=>array(
+			'optional'=>1,		
+			'class'=>'text',
+			'storage'=>array('method'=>'uni')
+		)
+	);
+	public $rules=array(
+		'storage'=>array(
+			'method'=>'uni',
+			'uni_combo'=>1,
+			'uni_table'=>'pokemon_main'
 		)
 	);
 	
 	// эта функция получает ввод от всех возможных языков. 
-	public function input($input=false, $ready=false)
+	public function do_input($input=false)
 	{
 		// проверяем все языки...
 		foreach ($this->model as $role=>$options)
@@ -459,6 +468,7 @@ class Entity_translation extends Entity_combo
 				$new=false;
 			}
 			else $entity=$this->build($role); // если нет, создаём новый.
+			
 			$entity->input($input, $ready); // объект вводит значение.
 			if (($entity->valid<>'nodata')&&($new)) $this->add($entity, $role); // если объект новый и он получил данные, то он добавляется во внутренние сущности.
 			elseif ( ($this->valid=='nodata')&&(!$new)&&($this->model[$role]['optional']) ) $this->remove($entity); // если данных нет, объект старый, но необязательный - то он он удаляется из списка.
