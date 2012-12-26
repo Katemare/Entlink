@@ -13,5 +13,10 @@ class EntityOldMysql
 	{
 		return mysql_query($query);
 	}
+	
+	public static function fetch($result)
+	{
+		return mysql_fetch_assoc($result);
+	}
 }
 ?>

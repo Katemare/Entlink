@@ -1,58 +1,47 @@
 <?
 // этот классы скрывает код, которым сущности сохраняют себя.
 // пока что реализация этого условлена не до конца... может быть, в итоге это будет сделано каким-то другим методом. но пока что это помогает не загружать сервер лишним кодом во время выполнения операций, не требующих ничего сохранять.
-class EntityStorage
-{
-	static $prefix='';
-	static $db;
+// этот объект мог бы быть гораздо проще, если бы не пришлось учитывать следующие типа хранения данных:
+// 1. таблица сущностей (entities) и связанные с ней таблицы сущностей-данных (entities_text, entities_int)...
+// 2. общая таблица, хранящая комбинацию как набор данных, то есть традиционным способом. "неофиты => имя, рост, вес, автор..."
+// 3. отдельное поле в таблице из пункта 2 для сущностей-значений.
+// 4. а ещё есть сущности-комбинации, которые возникают только во время показа и управления данными, но не имеют отдельных записей в БД. например, сущность "переводы", управляющая переводами имён покемонов, хотя сами переводы хранятся по методу 2 (основные) и 1 (дополнительные) и связаны с сущностью "покемон".
+// однако всё это нужно учитывать, во-первых, для грамотной миграции существующих сайтов на этот движок, во-вторых, для совместимости с параллельными движками вроде MediaWiki.
 
-	// эта функция выбирает класс, который будет непосредственно заниматься базой данных.
-	// STUB - использует старую систему команд mysql_.
-	public static function setupDB()
+class EntityStorage extends EntityDBOperator
+{	
+	// эта функция создаёт запросы, с помощью которых сущность-комбинация добавляется или обновляется в базе данных. она возвращает их в виде массива с запросами-массивами.
+	public static function store_combo(Entity_combo $who, $storage_rules='')
 	{
-		static::$db=new EntityOldMysql();
-	}
+		if ($storage_rules==='') $storage_rules=$who->rules['storage'];
+		if (!is_array($storage_rules)) return false; // STUB - тут должна быть обработка ошибки.
 	
-	// эта функция должна возвращать массив параметров, из которых потом составляются запросы к БД. массив имеет такой формат.
-	// отдельный запрос описывается так:
-	// table => название таблицы
-	// fields => массив (поле => значение)
-	// where => массив (поле => значение; цифровой ключ => условие)
-	// action => update/replace/insert
-	// set_uni - если истинно, то после операции insert сгенерированный идентификатор присваивается объекту-сущности.
-	
-	// эта функция создаёт запросы, с помощью которых сущность-комбинация добавляется или обновляется в базе данных.
-	public static function store_combo(Entity_combo $who, $rules='')
-	{
-		if ($rules==='') $rules=$who->rules['storage'];
-		if (!is_array($rules)) return false; // STUB - тут должна быть обработка ошибки.
-	
-		$queries=array();
-		$tables=array();	
-		foreach ($who->byrole as $role=>$list)
+		$queries=array(); // здесь будут храниться готовые запросы-массивы
+		$in_tables=array();	// здесь будут храниться поля, которым надо присворить значения в разных таблицах.
+		foreach ($who->byrole as $role=>$list) // проверяем все внутренние сущности...
 		{
-			$erules=$who->model[$role]['storage'];
-			foreach ($list as $entity)
+			$entity_storage_rules=$who->model[$role]['storage'];
+			foreach ($list as $entity) // каждая роль - это массив сущностей.
 			{
-				$res=$entity->store($erules);
+				$res=$entity->store($entity_storage_rules); // получаем запросы-массивы для сохранения внутренней сущности.
 				
-				if (array_key_exists('tables', $res))
+				if (array_key_exists('in_tables', $res)) // если переданы не только готовые запросы, но и исправления в поля отдельных таблиц...
 				{
-					$tables=static::merge_table_fields($tables, $res['tables']);
-					unset($res['tables']);
+					$in_tables=static::merge_table_fields($in_tables, $res['in_tables']); // объединяем их специальной функций с другими исправлениями в полях тех же таблиц.
+					unset($res['in_tables']);
 				}
-				$queries=array_merge($queries, $res);
+				$queries=array_merge($queries, $res); // объединяем в единый ответ.
 			}
 		}
 		
-		if ($rules['method']=='uni')
-		// эта сущность имеет отдельную, собственную запись в таблице сущностей. комбинации обычно именно такие, однако бывают комбинированные сущности, которые управляют наборами значений и создаются только во время показа страницы. например, "translate", объединяющий разные названия покмона.
+		if ($storage_rules['method']=='uni')
+		// эта сущность имеет отдельную, собственную запись в таблице сущностей. комбинации обычно именно такие, однако бывают комбинированные сущности, которые управляют наборами значений и создаются только во время показа страницы. например, "translate", объединяющий разные названия покемона.
 		{
 			$uni=$who->uni; 
 			if ($uni>0) // у сущности есть свой идентификатор, значит, есть запись в БД и нужно только обновление данных.
 			{
 				$where=array('uniID'=>$uni);
-				foreach ($tables as $table=>$fields)
+				foreach ($in_tables as $table=>$fields) // создаём запросы на обновления полей в отдельных таблицах.
 				{
 					$table_query=array(
 						'table'=>static::$prefix.$table,
@@ -63,27 +52,28 @@ class EntityStorage
 					$queries[]=$table_query;
 				}
 			}
-			else // нет идентификатора, а значит, надо добавить сущность.
+			else // нет существующего идентификатора, а значит, надо добавить сущность.
 			{	
-				$entities_query=static::new_entity_query($who, $rules);
-				if ($rules['uni_combo'])
+				$entities_query=static::new_entity_query($who, $storage_rules);
+				if ($storage_rules['uni_combo']) // эта инструкция указывает, что комбинация хранится старым способом - все данные (или большая часть) в одном элементе таблицы.
 				{
-					if (array_key_exists($rules['uni_table'], $tables))
+					$table=static::get_entity_table($who, $storage_rules);
+					if (array_key_exists($table, $in_tables)) // если таблица, где хранится комбинация, также упомянутая в подзапросах...
 					{
-						$entities_query['fields']=$tables[$rules['uni_table']];
-						unset($tables[$rules['uni_table']]);
+						$entities_query['fields']=$in_tables[$table]; // добавляем эти исправления в запрос на создание новой сущности.
+						unset($in_tables[$table]);
 					}
 				}
 				$queries[]=$entities_query;
 								
-				foreach ($tables as $table=>$fields)
+				foreach ($in_tables as $table=>$fields) // добавляем оставшиеся записи в таблицы.
 				{
 					$value_query=array(
 						'table'=>static::$prefix.$table,
 						'action'=>'insert',
 						'fields'=>$fields
 					);
-					$value_query['fields']['uniID']='insert_id';
+					$value_query['fields']['uniID']='insert_id'; // они должны быть связаны с только что добавленной сущностью. FIX!! а ведь если этих запросов много, то после первого же это поле испортится...
 					$queries[]=$value_query;
 				}
 			}
@@ -91,19 +81,19 @@ class EntityStorage
 		}
 		else // сущность, хотя это и комбинация, не имеет отдельной записи в БД. она передаёт свои данные верхней сущности, которая разберётся.
 		{
-			if (count($tables)>0) $queries['tables']=$tables;
+			if (count($in_tables)>0) $queries['in_tables']=$in_tables;
 			return $queries;
 		}
 	}
 	
 	// эта функция создаёт запросы, с помощью которых сущность-значение добавляется или обновляется в базе данных.
 	// запросы возвращаются в форме, определённой выше.
-	public static function store_value(Entity_value $who, $rules='')
+	public static function store_value(Entity_value $who, $storage_rules='')
 	{
-		if ($rules==='') $rules=$who->rules['storage'];
-		if (!is_array($rules)) return false; // STUB - тут должна быть обработка ошибки.
+		if ($storage_rules==='') $storage_rules=$who->rules['storage'];
+		if (!is_array($storage_rules)) return false; // STUB - тут должна быть обработка ошибки.
 	
-		if ($rules['method']=='uni')
+		if ($storage_rules['method']=='uni')
 		// эта сущность имеет отдельную, собственную запись в таблице сущностей.
 		{
 			$queries=array();
@@ -114,9 +104,9 @@ class EntityStorage
 				
 				// это обновление данных в таблице конкретных данных				
 				$value_query=array(
-					'table'=>static::$prefix.static::value_table($who, $rules),
+					'table'=>static::$prefix.static::get_entity_table($who, $storage_rules),
 					'action'=>'update',
-					'fields'=>static::value_fields($who, $rules),
+					'fields'=>static::value_fields($who, $storage_rules),
 					'where'=>$where
 				);
 				
@@ -125,13 +115,13 @@ class EntityStorage
 			else // у сущности нет идентификатора, а значит, нужно добавить её в базу данных.
 			{
 				// это добавление записи в таблицу всех сущностей.
-				$entities_query=static::new_entity_query($who, $rules);
+				$entities_query=static::new_entity_query($who, $storage_rules);
 				
 				// это добавление данных в таблицу конкретных данных.
 				$value_query=array(
-					'table'=>static::$prefix.static::value_table($who, $rules),
+					'table'=>static::$prefix.static::get_entity_table($who, $storage_rules),
 					'action'=>'insert',
-					'fields'=>static::value_fields($who, $rules, 1)
+					'fields'=>static::value_fields($who, $storage_rules, 1)
 				);
 				
 				// запросы будут выполняться в сторогом порядке, потому что второму нужны данные от первого (сгенерированный идентификатор новой сущности).
@@ -146,19 +136,19 @@ class EntityStorage
 			// возвращаем только поля, родительский объект разберётся (это ведь он вызвал данную функцию).
 			// вложенность массивов нужна потому, что если подобное возвращает промежуточный объект-комбинация - то в ответе могут быть и нумерованные готовые запросы.
 			$result= array(
-				'tables'=>array($rules['value_table']=>static::value_fields($who, $rules))
+				'in_tables'=>array(static::$prefix.static::get_entity_table($who, $storage_rules)=>static::value_fields($who, $storage_rules))
 			);
 			return $result;
 		}
 	}
 	
-	// эта функция генерирует массив fields для запросов на обновление и прочее.
-	public static function value_fields($who, $rules, $new=false)
+	// эта функция генерирует массив fields для запросов на обновление и добавление.
+	public static function value_fields($who, $storage_rules, $new=false)
 	{
 		$result=array();
-		if ($rules['value_field']<>'') $field=$rules['value_field'];
-		elseif ($rules['by_html_name']) $field=$who->rules['html_name'];
-		elseif ($rules['method']=='uni') $field='value';
+		if ($storage_rules['value_field']<>'') $field=$storage_rules['value_field'];
+		elseif ($storage_rules['by_html_name']) $field=$who->rules['html_name'];
+		elseif ($storage_rules['method']=='uni') $field='value';
 		// STUB - нет обработки ошибки.
 		
 		$result=array($field=>$who->data['value']); // STUB - пока не поддерживает сущности, данные которых могут храниться в двух полях (какие-нибудь иррациональные числа?)
@@ -168,12 +158,12 @@ class EntityStorage
 	}
 	
 	// создаёт массив fields для добавления новых сущностей в таблицу сущностей.
-	public static function new_entity_query($who, $rules)
+	public static function new_entity_query($who, $storage_rules)
 	{
-		if ($rules['uni_combo']) // для сущностей, которые по старому образцу хранятся в виде набора полей, каждая из которых - сущность-значение.
+		if ($storage_rules['uni_combo']) // для сущностей, которые по старому образцу хранятся в виде набора полей, каждая из которых - сущность-значение.
 		{
 			$result=array(
-				'table'=>$rules['uni_table'],
+				'table'=>static::prefix.static::get_entity_table($who, $storage_rules),
 				'action'=>'insert',
 				'set_uni'=>1
 			);		
@@ -188,64 +178,6 @@ class EntityStorage
 				'set_uni'=>1
 			);
 		}
-		return $result;
-	}
-	
-	public static function value_table($who, $rules)
-	{
-		if ($rules['value_table']<>'') $value_table=$rules['value_table'];
-		else $value_table='entities_'.$who->entity_type();
-		return $value_table;
-	}
-	
-	// подготавливает значение к тому, чтобы вставить его в запрос SQL. считается, что значения уже проверены и обезопасены!
-	public static function sql_value($value)
-	{
-		if (is_string($value)) $res="'$value'";
-		elseif (is_null($value)) $res="NULL";
-		elseif (is_numeric($value)) $res=$value;
-		return $res;
-	}
-	
-	// эта функция создаёт из массива с данными о запросе непосредственно запрос SQL.
-	// на выходе - строка.
-	public static function compose_query($query)
-	{
-		// подготавливаем поля. это нужно для всех типов запросов.
-		foreach ($query['fields'] as $field=>&$value)
-		{
-			if (($field==='uniID')&&($value==='insert_id')) $value=static::$db->get_insert_id();
-			$value=static::sql_value($value);
-		}
-		
-		if ($query['action']==='update') // обновляющий запрос...
-		{
-			// превращаем поля в строку, которая будет в SET.
-			$fields=array();
-			foreach ($query['fields'] as $field=>$value)
-			{
-				$fields[]="`$field`=$value";
-			}
-			$fields=implode(', ', $fields);
-	
-			// превращаем условия в строку, которая будет в WHERE.
-			$where=array();
-			foreach ($query['where'] as $key=>$value)
-			{
-				if (is_numeric($key)) $where[]=$value;
-				else $where.="`$key`=".static::sql_value($value);
-			}
-			$where=implode(' AND ', $where);
-
-			// строим запрос.
-			$result="UPDATE `$query[table]` SET $fields WHERE $where";
-		}
-		elseif (($query['action']==='insert')||($query['action']==='replace'))
-		{
-			// эта процедура проще, потому что названия полей идут подряд, а потом значения идут подряд.
-			$result=strtoupper($query['action'])." INTO `$query[table]` (`".implode("`,`", array_keys($query['fields'])).'`) VALUES ('.implode(', ', $query['fields']).")";
-		}
-		
 		return $result;
 	}
 	
@@ -271,6 +203,4 @@ class EntityStorage
 		return $arr1;
 	}
 }
-
-EntityStorage::setupDB();
 ?>

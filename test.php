@@ -11,10 +11,15 @@ echo $names->display('input');
 $lang='it';
 echo '<br><br>Перевод '.$lang.': '.$names->translate($lang).'<br><br>';
 
+Entity::generate_uni();
 $store=$names->store();
 foreach ($store as $q)
 {
 	$query=EntityStorage::compose_query($q);
 	echo $query.'<br>';
 }
+
+$names->req();
+$names->retrieve();
+var_dump(EntityRetriever::$data);
 ?>

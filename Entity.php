@@ -22,12 +22,16 @@ abstract class Entity
 	// invalid - есть данные, были проверены и признаны недопустимыми
 	// valid - есть данные, были проверены и признаны допустимыми
 	
+	static $entities_list=array(); // DEBUG
+	
 	public function __construct($args='')
 	{
 		// все дочерние классы используют этот же счётчик, чтобы идентификатор всегда был уникальным.
 		// это идентификатор используется для общения сущностей между собой во время операций и не имеет отношения к идентификатору, хранящемуся в базе данных.
 		Entity::$lastid++;
 		$this->id=Entity::$lastid;
+		
+		Entity::$entities_list[]=$this; // DEBUG
 		
 		// в массиве $args содержатся аргументы и опции для создания сущности. их точный состав неизвестен, но создаваться всё должно по одному принципу, так что используется массив.
 		if (is_array($args))
@@ -39,16 +43,29 @@ abstract class Entity
 		$this->prefix=$prefix;
 	}
 	
+	// DEBUG
+	public static function generate_uni()
+	{
+		foreach (Entity::$entities_list as $entity)
+		{
+			if ($entity->rules['storage']['method']==='uni') $entity->uni=$entity->id;
+		}
+	}
+	
 	public function entity_type()
 	{
 		return substr(get_class($this), 7);
 	}
 	
-	public function req() { } // постановка запроса на получение из базы данных.
+	// постановка запроса на получение из базы данных.
+	public function req()
+	{
+		EntityRetriever::req($this);
+	}	
 	
 	public function retrieve() // получение из базы данных. следует вызывать как можно позже, когда данные нужны немедленно.
 	{
-		Retriever::retrieve($this->toretrieve);
+		EntityRetriever::get_input($this);
 	}
 	
 	// пользовательский ввод через форму, ссылку или заранее извлечённые данные.
@@ -86,6 +103,7 @@ abstract class Entity
 	// nop - проверки не было (потому что данные отсутствуют)
 	// previous - возвращён результат предыдущей проверки.
 	// allgood - возвращён результат проверки по умолчанию, которая любые данные признаёт допустимыми. следует понимать так: "замените меня в дочерних классах!
+	// STUB: думаю, эта функция также должна оценивать корректируемость данных.
 	{
 		if ($this->valid=='nodata') return array ('valid'=>'nodata', 'check'=>'nop');
 		if (($this->valid<>'unknown')&&($force==0)) return array ('valid'=>$this->valid, 'check'=>'previous');
@@ -106,6 +124,34 @@ abstract class Entity
 	public abstract function display($style='raw'); // показ данных.
 	
 	public abstract function store($rules=''); // сохранение данных. STUB - пока что только получение запросов.
+}
+
+#########################
+### Entity link class ###
+#########################
+
+class Entity_link
+{
+	// STUB
+	public function do_input($input)
+	{
+	}
+	
+	// STUB
+	public function safe()
+	{
+	}
+	
+	// обычно связи между сущностями показываются в виде расположения элементов страницы и вообще их присутствия на странице. только когда появится возможность комментировать и отмечать непосредственно связи, понадобится наполнить эту функцию.
+	public function display($style='raw')
+	{
+		return '';
+	}
+	
+	public function store($rules='')
+	{
+		return EntityStorage::store_link($this, $rules);
+	}
 }
 
 #############################
@@ -284,6 +330,7 @@ abstract class Entity_combo extends Entity
 ### Value-type entities ###
 ###########################
 // это сущности самого низкого уровня, аналог переменных базовых типов. если что-то вводится одним тэгом <input> или <select>, то данные идут в сущность, образованную от Entity_value.
+{
 
 abstract class Entity_value extends Entity
 {	
@@ -390,10 +437,16 @@ class Entity_int extends Entity_value
 // натуральное число - то есть целое положительное.
 class Entity_natural extends Entity_value
 {
+	public function __construct($args='')
+	{
+		parent::__construct($args);
+		if (!array_key_exists('value_table', $this->rules['storage'])) $this->rules['storage']['value_table']='entites_int'; // данные ничем не отличаются от Entity_int, так что пусть хранятся в одной таблице.
+	}
+
 	public function safe()
 	{
 		$this->data['value']=(int)$this->data['value'];
-		if ($this->data['value']<1) $this->data['value']=1;
+		if ($this->data['value']<1) $this->data['value']=1; // STUB: эта процедура должна быть в функции коррекции данных.
 	}
 }
 
@@ -403,10 +456,11 @@ class Entity_real extends Entity_value
 	public function safe()
 	{
 		$this->data['value']=(float)$this->data['value'];
-		if ($this->data['value']<0) $this->data['value']=0;
+		if ($this->data['value']<0) $this->data['value']=0; // STUB: эта процедура должна быть в функции коррекции данных.
 	}
 }
 
+}
 ############################################
 ### Комбинированные сущности на практике ###
 ############################################
@@ -426,20 +480,20 @@ class Entity_translation extends Entity_combo
 	public $model=array(
 		'rus'=>array(
 			'class'=>'text',
-			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
+			'storage'=>array('entity_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'eng'=>array(
 			'class'=>'text',
-			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
+			'storage'=>array('entity_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'jap'=>array(
 			'class'=>'text',
-			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
+			'storage'=>array('entity_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'jap_kana'=>array(
 			'optional'=>1,
 			'class'=>'text',
-			'storage'=>array('value_table'=>'pokemon_main', 'by_html_name'=>1)
+			'storage'=>array('entity_table'=>'pokemon_main', 'by_html_name'=>1)
 		),
 		'ukr'=>array(
 			'optional'=>1,		
@@ -451,7 +505,7 @@ class Entity_translation extends Entity_combo
 		'storage'=>array(
 			'method'=>'uni',
 			'uni_combo'=>1,
-			'uni_table'=>'pokemon_main'
+			'entity_table'=>'pokemon_main'
 		)
 	);
 	
