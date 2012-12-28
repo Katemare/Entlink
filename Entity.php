@@ -8,7 +8,7 @@
 abstract class Entity
 {
 	public $lang='rus'; // язык, на котором будут выводиться сообщения.
-	public $prefix=''; // для ввода, если в форме есть несколько сущностей данного типа.
+	public $html_prefix=''; // для ввода, если в форме есть несколько сущностей данного типа.
 	static $lastid=0; // номер последней созданной сущности. счёт начинается с 1.
 	public $id=0; // идентификатор данной сущности внутри прогона программы.
 	public $uni=0; // идентификатор сущности, имеющей собственную отдельную запись в БД. есть не у всех.
@@ -22,7 +22,8 @@ abstract class Entity
 	// invalid - есть данные, были проверены и признаны недопустимыми
 	// valid - есть данные, были проверены и признаны допустимыми
 	
-	static $entities_list=array(); // DEBUG
+	static $entities_list=array(); // список всех сущностей, чтобы всегда можно было найти нужную сущность по идентификатору.
+	static $entities_by_uni=array();
 	
 	public function __construct($args='')
 	{
@@ -31,16 +32,26 @@ abstract class Entity
 		Entity::$lastid++;
 		$this->id=Entity::$lastid;
 		
-		Entity::$entities_list[]=$this; // DEBUG
+		Entity::$entities_list[$this->id]=$this;
 		
 		// в массиве $args содержатся аргументы и опции для создания сущности. их точный состав неизвестен, но создаваться всё должно по одному принципу, так что используется массив.
 		if (is_array($args))
 		{
-			$prefix=(string)($args['prefix']);
+			$html_prefix=(string)($args['html_prefix']);
 			if (array_key_exists('storage', $args)) $this->rules['storage']=$args['storage'];
+			if (array_key_exists('uni', $args)) $this->uni=$args['uni'];			
+		}
+		if (!is_array($this->rules['storage'])) $this->rules['storage']=array();
+		
+		if (
+			(isset($this->rules['compatible_table'])) &&
+			(!array_key_exists('value_table', $this->rules['storage']))
+			)
+		{
+			$this->rules['storage']['value_table']='entities_'.$this->rules['compatible_table']; // данные ничем не отличаются от Entity_int, так что пусть хранятся в одной таблице.					
 		}
 		
-		$this->prefix=$prefix;
+		$this->html_prefix=$html_prefix;
 	}
 	
 	// DEBUG
@@ -48,8 +59,22 @@ abstract class Entity
 	{
 		foreach (Entity::$entities_list as $entity)
 		{
-			if ($entity->rules['storage']['method']==='uni') $entity->uni=$entity->id;
+			if ($entity->rules['storage']['method']==='uni') $entity->setUni($entity->id);
 		}
+	}
+	
+	public static function uni_exists($uni)
+	{
+		return array_key_exists($uni, Entity::$entities_by_uni);
+	}
+	
+	public function setUni($uni)
+	{
+		$olduni=$this->uni;
+		if ($olduni>0) unset(Entity::$entities_by_uni[$olduni]);
+		$this->uni=$uni;
+		if ($uni>0) Entity::$entities_by_uni[$uni]=$this;
+		// STUB: нет обработки ошибки
 	}
 	
 	public function entity_type()
@@ -57,16 +82,20 @@ abstract class Entity
 		return substr(get_class($this), 7);
 	}
 	
-	// постановка запроса на получение из базы данных.
+	// постановка запроса на получение данных из БД.
 	public function req()
 	{
+		if ($this->valid!=='nodata') return; // если данные уже есть, игнорируем команду.
 		EntityRetriever::req($this);
 	}	
 	
-	public function retrieve() // получение из базы данных. следует вызывать как можно позже, когда данные нужны немедленно.
+	public function retrieve() // приказ выполнить запрос на получение данных из БД. следует вызывать как можно позже, когда данные нужны немедленно.
 	{
-		EntityRetriever::get_input($this);
+		if ($this->valid!=='nodata') return; // если данные уже есть, игнорируем команду.	
+		EntityRetriever::retrieve();
 	}
+	
+	abstract public function receive(); // эту фунуцию вызывает Ретривер, когда он получил данные. это может случиться и раньше, чем команда retrieve для данной сущности, потому что данные получаются скопом и сразу раздаются адресатам.
 	
 	// пользовательский ввод через форму, ссылку или заранее извлечённые данные.
 	// $input -  массив с заранее извлечёнными данными. если указан, то используется вместо $_GET и $_POST
@@ -169,12 +198,68 @@ abstract class Entity_combo extends Entity
 	public $rolebyid=array(); // массив ролей по идентификатору сущности. нужен для удаления сущности из списка по ролям, чтобы не перебирать.
 	public $format=array(); // массив форматов отображения, типа 'Привет, %name%!'. должен содержать минимум значение с ключом raw.
 	public $style=''; // используется для хранения стиля, обрабатываемого сейчас, в отсутствие пока что closure'ов.
+	public $built=false;
+	
+	public function receive()
+	{
+		foreach ($this->model as $role=>$options)
+		{
+			if ($options['storage']['method']=='uni')
+			{
+				// WIP
+			}
+			else
+			{
+				// все поля, которые хранятся в записях других сущностей (по старому методу), нам известны, потому что их не может быть неограниченное количество. они также не являются опциональными. следовательно, мы можем просто доверить каждому получить себя.
+				// комбинации, хранящиеся не по методу uni, являются временными и просто должны передать запросы своим внутренним сущностям. пока что не предполагается, что такие комбинации могут быть опциональными.				
+				$class='Entity_'.$options['class'];
+				if ((is_subclass_of($class, 'Entity_value'))||(is_subclass_of($class, 'Entity_combo')))
+				{
+					foreach ($this->byrole as $index=>$entity)
+					{
+						$entity->receive();
+					}
+				}
+				// связи, хранящиеся не по методу uni, невозможны.
+			}
+		}
+		
+		$dbop='EntityRetriever';
+		if (
+			($this->rules['storage']['method']==='uni') &&
+			($this->uni>0) &&
+			(array_key_exists($this->uni, $dbop::$links))
+			)
+		{
+			$all_links=$dbop::$links[$this->uni];
+			foreach ($all_links as $connection=>$links)
+			{
+				if ($connection==='A:A is combo parent of B')
+				{
+					foreach ($links as $uni=>$link)
+					{
+						if (!Entity::uni_exists($uni))
+						{
+							$link_entity=new Entity_link(array('uni'=>$uni));
+							$link_entity->receive();
+						}
+						$child=$link['uniID2'];
+						$details=unserialize($link['details']); // STUB
+						if (Entity::uni_exists($child)) $entity=Entity::$entities_by_uni[$child];
+						else $entity=$this->build($details['role']);
+						$this->add($entity, $details['role']);
+					}
+				}
+			}
+		}
+	}
 	
 	public function build($role='') // строит внутренние сущности согласно модели.
 	// эта функция не автоматически вызывается после конструкции класса потому, чтобы код мог уточнить модель до этого.
 	{
 		if ($role=='') // вызов для построения всей модели.
 		{
+			if ($this->built) return;		
 			foreach ($this->model as $role=>$options)
 			{
 				if ($options['optional']) continue; // объекты, чьё присутствие не обязательно, по умолчанию не создаются.
@@ -192,13 +277,19 @@ abstract class Entity_combo extends Entity
 			else $args=array();
 			if (array_key_exists('storage', $this->model[$role])) $args['storage']=$this->model[$role]['storage'];
 			
+			// необходимо сохранить ссылку на ближайшего родителя, записывающегося в базу данных, чтобы проводить связи.
+			if ($this->rules['storage']['method']==='uni') $args['storage']['combo_parent']=$this;
+			else $args['storage']['combo_parent']=$this->rules['storage']['combo_parent'];
+			
 			// префикс должен совпадать с родительским объектом.
-			$args['prefix']=$this->prefix;
+			$args['html_prefix']=$this->html_prefix;
 			
 			// создаём, возвращаем.
 			$entity=new $class($args);
 			return $entity;
 		}
+		
+		$this->built=1;
 	}
 	
 	// когда требуется ввод, то команда передаётся всем внутренним объектам по очереди.
@@ -369,9 +460,22 @@ abstract class Entity_value extends Entity
 		
 	}
 	
+	public function receive()
+	{
+		$dbop='EntityRetriever';
+		$table=$dbop::$db_prefix.$dbop::get_entity_table($this);
+		$field=$dbop::get_value_field($this);
+		if ($this->rules['storage']['method']==='uni') $uni=$this->uni;
+		else $uni=$this->rules['storage']['combo_parent']->uni;
+		// STUB - нет обработки ошибки.
+		$input[$this->rules['html_name']]=$dbop::$data[$table][$uni][$field];
+		
+		$this->input($input, 1);
+	}
+	
 	public function input_name() // конструирует имя поля ввода. в принципе, можно было бы использовать кэш, но операция не затратная.
 	{
-		return $this->prefix.'_'.$this->html_name;
+		return $this->html_prefix.'_'.$this->html_name;
 	}
 	
 	//STUB - только возвращает запрос и не проверяет допустимость значений.
@@ -437,10 +541,10 @@ class Entity_int extends Entity_value
 // натуральное число - то есть целое положительное.
 class Entity_natural extends Entity_value
 {
-	public function __construct($args='')
+	public function __consruct($args='')
 	{
+		$this->rules['compatible_table']='entities_int';
 		parent::__construct($args);
-		if (!array_key_exists('value_table', $this->rules['storage'])) $this->rules['storage']['value_table']='entites_int'; // данные ничем не отличаются от Entity_int, так что пусть хранятся в одной таблице.
 	}
 
 	public function safe()
@@ -521,7 +625,10 @@ class Entity_translation extends Entity_combo
 				$entity=$this->byrole[$role][0];
 				$new=false;
 			}
-			else $entity=$this->build($role); // если нет, создаём новый.
+			else
+			{
+				$entity=$this->build($role); // если нет, создаём новый.
+			}
 			
 			$entity->input($input, $ready); // объект вводит значение.
 			if (($entity->valid<>'nodata')&&($new)) $this->add($entity, $role); // если объект новый и он получил данные, то он добавляется во внутренние сущности.

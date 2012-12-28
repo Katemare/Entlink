@@ -44,7 +44,7 @@ class EntityStorage extends EntityDBOperator
 				foreach ($in_tables as $table=>$fields) // создаём запросы на обновления полей в отдельных таблицах.
 				{
 					$table_query=array(
-						'table'=>static::$prefix.$table,
+						'table'=>static::$db_prefix.$table,
 						'action'=>'update',
 						'fields'=>$fields,
 						'where'=>$where
@@ -54,9 +54,12 @@ class EntityStorage extends EntityDBOperator
 			}
 			else // нет существующего идентификатора, а значит, надо добавить сущность.
 			{	
-				$entities_query=static::new_entity_query($who, $storage_rules);
+				$entities_query=static::new_entity_query($who, 'entities');
+				$queries[]=$entities_query; // запись в общую таблицу сущностей всё равно нужна.
+				
 				if ($storage_rules['uni_combo']) // эта инструкция указывает, что комбинация хранится старым способом - все данные (или большая часть) в одном элементе таблицы.
 				{
+					$entities_query=static::new_entity_query($who, $storage_rules);				
 					$table=static::get_entity_table($who, $storage_rules);
 					if (array_key_exists($table, $in_tables)) // если таблица, где хранится комбинация, также упомянутая в подзапросах...
 					{
@@ -69,11 +72,11 @@ class EntityStorage extends EntityDBOperator
 				foreach ($in_tables as $table=>$fields) // добавляем оставшиеся записи в таблицы.
 				{
 					$value_query=array(
-						'table'=>static::$prefix.$table,
+						'table'=>static::$db_prefix.$table,
 						'action'=>'insert',
 						'fields'=>$fields
 					);
-					$value_query['fields']['uniID']='insert_id'; // они должны быть связаны с только что добавленной сущностью. FIX!! а ведь если этих запросов много, то после первого же это поле испортится...
+					$value_query['fields']['uniID']='uni'.$who->id; // они должны быть связаны с только что добавленной сущностью. мы не обращаемся к правилу combo_parent потому, что обрабатываемая сущность и есть ближайшая сохраняемая сущность сверху от тех, кто добавил записи в $in_tables.
 					$queries[]=$value_query;
 				}
 			}
@@ -104,7 +107,7 @@ class EntityStorage extends EntityDBOperator
 				
 				// это обновление данных в таблице конкретных данных				
 				$value_query=array(
-					'table'=>static::$prefix.static::get_entity_table($who, $storage_rules),
+					'table'=>static::$db_prefix.static::get_entity_table($who, $storage_rules),
 					'action'=>'update',
 					'fields'=>static::value_fields($who, $storage_rules),
 					'where'=>$where
@@ -116,10 +119,11 @@ class EntityStorage extends EntityDBOperator
 			{
 				// это добавление записи в таблицу всех сущностей.
 				$entities_query=static::new_entity_query($who, $storage_rules);
+				// у сущности-значения не может быть установлено правило 'uni_combo', так что эта функция всегда выдаёт запись в entities.
 				
 				// это добавление данных в таблицу конкретных данных.
 				$value_query=array(
-					'table'=>static::$prefix.static::get_entity_table($who, $storage_rules),
+					'table'=>static::$db_prefix.static::get_entity_table($who, $storage_rules),
 					'action'=>'insert',
 					'fields'=>static::value_fields($who, $storage_rules, 1)
 				);
@@ -136,9 +140,28 @@ class EntityStorage extends EntityDBOperator
 			// возвращаем только поля, родительский объект разберётся (это ведь он вызвал данную функцию).
 			// вложенность массивов нужна потому, что если подобное возвращает промежуточный объект-комбинация - то в ответе могут быть и нумерованные готовые запросы.
 			$result= array(
-				'in_tables'=>array(static::$prefix.static::get_entity_table($who, $storage_rules)=>static::value_fields($who, $storage_rules))
+				'in_tables'=>array(static::$db_prefix.static::get_entity_table($who, $storage_rules)=>static::value_fields($who, $storage_rules))
 			);
 			return $result;
+		}
+	}
+	
+	// эта функция отправляет запросы к БД на сохранение данных.
+	public static function storage($queries)
+	{
+		$db=parent::$db;
+		
+		foreach ($queries as $q)
+		{
+			$query=static::compose_query($q);
+			$result=$db::query($query);
+			// STUB: нужна обработка ошибки
+			if ($q['set_uni']>0)
+			{
+				$uni=$db::insert_id();
+				$entity=Entity::$entities_list[$q['set_uni']];
+				$entity->setUni($uni);
+			}
 		}
 	}
 	
@@ -146,37 +169,43 @@ class EntityStorage extends EntityDBOperator
 	public static function value_fields($who, $storage_rules, $new=false)
 	{
 		$result=array();
-		if ($storage_rules['value_field']<>'') $field=$storage_rules['value_field'];
-		elseif ($storage_rules['by_html_name']) $field=$who->rules['html_name'];
-		elseif ($storage_rules['method']=='uni') $field='value';
-		// STUB - нет обработки ошибки.
 		
-		$result=array($field=>$who->data['value']); // STUB - пока не поддерживает сущности, данные которых могут храниться в двух полях (какие-нибудь иррациональные числа?)
+		if ($who instanceof Entity_value)
+		{
+			$field=static::get_value_field($who, $storage_rules);
+			$result[$field]=$who->data['value']; // STUB - пока не поддерживает сущности, данные которых могут храниться в двух полях (какие-нибудь иррациональные числа?)
+		}
+		elseif ($who instanceof Entity_link)
+		{
+			$result['uniID1']='uni'.$who->data['entity1']->id;
+			$result['uniID2']='uni'.$who->data['entity2']->id;
+			$result['connection']=$who->data['connection'];
+		}
 		
-		if ($new) $result['uniID']='insert_id'; // этот параметр добавляет присвоение уникального идентификатора. нужен в случаях, когда новая сущность уже добавлена в таблицу сущностей, а в таблицу данных - ещё нет.
+		if (($new)&&($storage_rules['method']=='uni')) $result['uniID']='uni'.$who->id; // если сущность хранится в двух таблицах: entities и таблице данных.
 		return $result;
 	}
 	
 	// создаёт массив fields для добавления новых сущностей в таблицу сущностей.
-	public static function new_entity_query($who, $storage_rules)
+	public static function new_entity_query($who, $storage_rules='entities')
 	{
-		if ($storage_rules['uni_combo']) // для сущностей, которые по старому образцу хранятся в виде набора полей, каждая из которых - сущность-значение.
+		if (($storage_rules==='entities')||(!$storage_rules['uni_combo'])) // по умолчанию сущность записывается в отдельную таблицу сущностей.
+		{
+			$result=array(
+				'table'=>static::$db_prefix.'entities',
+				'action'=>'insert',
+				'fields'=>array('entity_type'=>$who->entity_type() ), // отсекает приставку "Entity_" от названия класса.
+				'set_uni'=>$who->id
+			);
+		}
+		else //if ($storage_rules['uni_combo']) // для сущностей, которые по старому образцу хранятся в виде набора полей, каждая из которых - сущность-значение.
 		{
 			$result=array(
 				'table'=>static::prefix.static::get_entity_table($who, $storage_rules),
 				'action'=>'insert',
-				'set_uni'=>1
+				'set_uni'=>$who->id
 			);		
 			// пункта fields нет, потому что тип сущности уже известен в контексте (мы же знали, откуда извлекать данные), а поля-значения обеспечат подсущности.
-		}
-		else // по умолчанию сущность записывается в отдельную таблицу сущностей.
-		{
-			$result=array(
-				'table'=>static::$prefix.'entities',
-				'action'=>'insert',
-				'fields'=>array('entity_type'=>$who->entity_type() ), // отсекает приставку "Entity_" от названия класса.
-				'set_uni'=>1
-			);
 		}
 		return $result;
 	}

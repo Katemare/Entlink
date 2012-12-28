@@ -11,7 +11,7 @@ abstract class EntityDBOperator
 	// where => массив (поле => значение; цифровой ключ => условие). только для update и select.
 	// set_uni - если истинно, то после операции insert/replace сгенерированный идентификатор присваивается объекту-сущности. STUB: что делать со вставкой нескольких сущностей - не знаю пока. будем решать проблемы по мере их поступления.
 
-	static $prefix=''; // префикс таблиц на случай, если при установке движка он был указан.
+	static $db_prefix=''; // префикс таблиц на случай, если при установке движка он был указан.
 	static $db; // содержит название класса, с помощью которого осуществляется непосредственное общение с БД. к нему всегда следует обращаться <s>вежливо</s> parent::$db, а не static:: или self::.
 
 	// эта функция выбирает класс, который будет непосредственно заниматься базой данных.
@@ -49,9 +49,11 @@ abstract class EntityDBOperator
 			}
 			else // рекурсивный вызов для обработки единичного значения.
 			{
-				$db=self::$db;
-				if (($field==='uniID')&&($data==='insert_id')) $data=$db::get_insert_id();
-				else $data=static::sql_value($data);
+				if ((preg_match('/^uniID/', $field))&&(preg_match('/^uni(\d+)$/', $data, $m)))
+				{
+					$data=Entity::$entities_list[(int)$m[1]]->uni; // STUB: нет обработки ошибки
+				}
+				$data=static::sql_value($data);
 			}
 			return $data;
 		}
@@ -67,7 +69,7 @@ abstract class EntityDBOperator
 	}
 	
 	// эта функция делает из массива where строку, которую нужно вставить в финальный строковый запрос.
-	public static function compose_where($where)
+	public static function compose_where($where, $operator='AND')
 	{
 		$where=static::prepare_fields($where); // делает значения полей применимыми в запросе-строке. не трогает готовых условий, у которых числовой ключ.
 		$result=array();
@@ -77,7 +79,7 @@ abstract class EntityDBOperator
 			elseif (is_array($value)) $result[]="`$key` IN (".implode(',', $value).")"; // набор значений.
 			else $result[]="`$key`=$value"; // одно значение.
 		}
-		$result=implode(' AND ', $result);
+		$result=implode(' '.$operator.' ', $result);
 		return $result;
 	}
 	
@@ -97,7 +99,10 @@ abstract class EntityDBOperator
 			$fields=implode(', ', $fields);
 	
 			// превращаем условия в строку, которая будет в WHERE.
-			$where=static::compose_where($query['where']);
+			// если where уже строка, не трогаем.
+			// STUB: нет обработки ошибки, когда where нет!
+			if (is_array($where)) $where=static::compose_where($query['where'], $query['where_operator']);
+			else $where=$query['where'];
 
 			// строим запрос.
 			$result="UPDATE `$query[table]` SET $fields WHERE $where";
@@ -107,7 +112,8 @@ abstract class EntityDBOperator
 			if (array_key_exists('fields', $query)) $fields="`".implode("`,`", $query['fields'])."`";
 			else $fields='*';
 			
-			if (array_key_exists('where', $query)) $where='WHERE '.static::compose_where($query['where']);
+			$where='';
+			if ( (array_key_exists('where', $query))&&(is_array($query['where'])) ) $where='WHERE '.static::compose_where($query['where'], $query['where_operator']);
 			else $where='';
 			
 			$result="SELECT $fields FROM `$query[table]` $where ";
@@ -125,12 +131,22 @@ abstract class EntityDBOperator
 	
 	// эта функция позволяет получить таблицу, из которой берутся данные для "настоящей сущности" - той, которая имеет отдельную запись в entities; а также для сущностей, у которых явно указана таблица, в том числе которые соответствуют полям в традиционно хранимой комбинации (весь набор в одной таблице).
 	// не добавляет префикс.
-	public static function get_entity_table($who, $storage_rules)
+	public static function get_entity_table($who, $storage_rules='')
 	{
 		if ($storage_rules['entity_table']<>'') $table=$storage_rules['entity_table'];
-		//elseif ($storage_rules['uni_table
+		//elseif ($storage_rules['uni_table // WIP
 		else $table='entities_'.$who->entity_type();
 		return $table;
+	}
+	
+	public static function get_value_field($who, $storage_rules='')
+	{
+		if ($storage_rules['entity_table']<>'') $table=$storage_rules['entity_table'];	
+		if ($storage_rules['value_field']<>'') $field=$storage_rules['value_field'];
+		elseif ($storage_rules['by_html_name']) $field=$who->rules['html_name'];
+		elseif ($storage_rules['method']=='uni') $field='value';
+		// STUB - нет обработки ошибки.				
+		return $field;
 	}
 }
 
