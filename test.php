@@ -1,25 +1,21 @@
 <?
+$start=time();
+$start_m=microtime();
 include('def.php');
-include('Entity.php');
-$names=new Entity_translation();
-$names->build();
-$names->listFormat();
-$dic=array('name_eng'=>'Meow', 'name_rus'=>'ּÿף', 'name_jap'=>'Nyan', 'name_ukr'=>'ֽÿסף');
-$names->input($dic);
-echo $names->display('input');
 
-$lang='it';
-echo '<br><br>ֿונוגמה '.$lang.': '.$names->translate($lang).'<br><br>';
+$poke=EntityFactory::create_blank(1, 'pokemon');
+$context=new Context('preprocess');
+$context->root=$poke;
+echo '+++'.htmlspecialchars($poke->display($context));
 
-Entity::generate_uni();
-$store=$names->store();
-foreach ($store as $q)
-{
-	$query=EntityStorage::compose_query($q);
-	echo $query.'<br>';
-}
+echo '<br><br>';
+EntityRetriever::retrieve();
+debug('<hr>');
+$context->purpose='edit';
+echo '+++'.htmlspecialchars($poke->display($context));
 
-$names->req();
-$names->retrieve();
-var_dump(EntityRetriever::$data);
+$end=time();
+$end_m=microtime();
+echo '<br><br>';
+debug( 'time: '. round(( ($end+$end_m) - ($start+$start_m) ), 3).'s');
 ?>

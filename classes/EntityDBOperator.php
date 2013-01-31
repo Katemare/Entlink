@@ -4,11 +4,17 @@ abstract class EntityDBOperator
 {
 	// до того, как запрос собираетс€ в строку с помощью compose_query, он представл€етс€ в форме массива. если не сказано обратное, функции этого и дочерних классов работают именно с формой массива.
 	// массив имеет такой формат.
-	// table => название таблицы
-	// action => update/replace/insert/select	
-	// fields => массив (поле => значение). дл€ update - что обновить. дл€ insert/replace - какие значени€ вставить. дл€ select другой формат.
+	// table => название таблицы или массив названий.
+	// action => update/replace/insert/select
+	
+	// дл€ insert/replace/update:
+	// fields => массив (поле => значение). дл€ update - что обновить. дл€ insert/replace - какие значени€ вставить.
+	
+	//дл€ select:
 	// fields => массив (пол€) . это пол€, которые нужно выбрать. в отсутствие этого массива - *.
+	
 	// where => массив (поле => значение; цифровой ключ => условие). только дл€ update и select.
+	
 	// set_uni - если истинно, то после операции insert/replace сгенерированный идентификатор присваиваетс€ объекту-сущности. STUB: что делать со вставкой нескольких сущностей - не знаю пока. будем решать проблемы по мере их поступлени€.
 
 	static $db_prefix=''; // префикс таблиц на случай, если при установке движка он был указан.
@@ -49,10 +55,7 @@ abstract class EntityDBOperator
 			}
 			else // рекурсивный вызов дл€ обработки единичного значени€.
 			{
-				if ((preg_match('/^uniID/', $field))&&(preg_match('/^uni(\d+)$/', $data, $m)))
-				{
-					$data=Entity::$entities_list[(int)$m[1]]->uni; // STUB: нет обработки ошибки
-				}
+				if (preg_match('/^uniID/', $field)) $data=static::unize($data);
 				$data=static::sql_value($data);
 			}
 			return $data;
@@ -127,26 +130,18 @@ abstract class EntityDBOperator
 		}
 		
 		return $result;
-	}	
-	
-	// эта функци€ позвол€ет получить таблицу, из которой берутс€ данные дл€ "насто€щей сущности" - той, котора€ имеет отдельную запись в entities; а также дл€ сущностей, у которых €вно указана таблица, в том числе которые соответствуют пол€м в традиционно хранимой комбинации (весь набор в одной таблице).
-	// не добавл€ет префикс.
-	public static function get_entity_table($who, $storage_rules='')
-	{
-		if ($storage_rules['entity_table']<>'') $table=$storage_rules['entity_table'];
-		//elseif ($storage_rules['uni_table // WIP
-		else $table='entities_'.$who->entity_type();
-		return $table;
 	}
 	
-	public static function get_value_field($who, $storage_rules='')
+	public static function unize($code)
 	{
-		if ($storage_rules['entity_table']<>'') $table=$storage_rules['entity_table'];	
-		if ($storage_rules['value_field']<>'') $field=$storage_rules['value_field'];
-		elseif ($storage_rules['by_html_name']) $field=$who->rules['html_name'];
-		elseif ($storage_rules['method']=='uni') $field='value';
-		// STUB - нет обработки ошибки.				
-		return $field;
+		if (is_numeric($code)) return $code;
+		if (preg_match('/^uni(\d+)$/', $code, $m))
+		{
+			$id=$m[1];
+			if (Entity::id_exists($uni)) return Entity::$entities_list[$id]->uni;
+			else return $code;
+		}
+		return $code;
 	}
 }
 

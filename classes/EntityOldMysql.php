@@ -11,6 +11,7 @@ class EntityOldMysql
 
 	public static function query($query)
 	{
+		debug('query '.htmlspecialchars($query));
 		return mysql_query($query);
 	}
 	
@@ -19,4 +20,7 @@ class EntityOldMysql
 		return mysql_fetch_assoc($result);
 	}
 }
+
+$db = mysql_connect ('localhost', 'root', '');
+mysql_select_db ('entlink');
 ?>
