@@ -115,7 +115,7 @@ class EntityStorage_combo extends EntityStorage
 			'source'=>null,
 			'safe'=>false,
 			'safe potential'=>true,
-			'errors'=>array();
+			'errors'=>array()
 		);
 		
 		$result=$good;

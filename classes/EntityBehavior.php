@@ -164,7 +164,7 @@ abstract class EntityBehavior
 			'safe potential'=>false,
 			'correct'=>false,
 			'correctable'=>false,
-			'errors'=array()
+			'errors'=>array()
 		);
 		if ($this->owner->metadata['checked']) return;
 		

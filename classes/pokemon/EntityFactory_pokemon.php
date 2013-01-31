@@ -103,7 +103,7 @@ class EntityFactory_pokemon extends EntityFactory_combo
 		'color'=>array(
 			'table'=>'pokemon_main',
 			'type'=>'pokemon_color',
-			'qlink'=>1
+			'qlink'=>1,
 			'link_type'=>'B_is_color_of_pokemon_A'
 			),
 		'base_hp'=>array(

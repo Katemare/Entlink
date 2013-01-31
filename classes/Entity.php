@@ -94,7 +94,7 @@ class Entity
 	
 	public function link()
 	{
-		return $this->behavior instanceof 'EntityBehavior_link';
+		return ($this->behavior instanceof EntityBehavior_link);
 	}
 	
 	public function analyzeData()
