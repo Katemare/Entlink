@@ -40,6 +40,20 @@ class EntityBehavior_link extends EntityBehavior
 		}
 	}
 	
+	public function set_link($entity1, $entity2, $source)
+	{
+		if ($entity1 instanceof Entity) $uni1=$entity1->uni;
+		elseif (is_numeric($entity1)) $uni1=$entity1;
+		else $uni1=null;
+		
+		if ($entity2 instanceof Entity) $uni2=$entity2->uni;
+		elseif (is_numeric($entity2)) $uni2=$entity2;
+		else $uni2=null;
+		
+		$set=array('entity1'=>$uni1, 'entity2'=>$uni2);
+		$this->owner->setData($set, $source);
+	}
+	
 	public function analyzeData()
 	{
 		$realcheck=parent::analyzeData();

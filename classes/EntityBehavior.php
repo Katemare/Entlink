@@ -61,19 +61,19 @@ abstract class EntityBehavior
 		$result='';
 		if (in_array($code[0], array('>', '<')))
 		{
-			debug ('xCode linked');
-			$link=substr($code, 1);
+			debug ('xCode member');
+			$member_code=substr($code, 1);
 			if ($context->do_req())
 			{
-				debug('req_link: '.$link);
-				$this->owner->req_link($link, $context, $args);
-				$result='REQ_LINK: '.$link; //$args['default'];
+				debug('req_member: '.$member_code);
+				$this->owner->req_member($member_code, $context, $args);
+				$result='REQ_MEMBER: '.$member_code; //$args['default'];
 			}
 			else //if ($context->display_values())
 			{
-				$linked=$this->owner->get_linked($link, $args);
-				if ($linked instanceof Entity) $result=$linked->display($context, $args);
-				else $result=$this->expandFormat('%error[no_linked;ask='.$link.']%');
+				$member=$this->owner->get_member($member_code, $args);
+				if ($member instanceof Entity) $result=$member->display($context, $args);
+				else $result=$this->expandFormat('%error[no_member;ask='.$link.']%');
 			}
 		}
 		elseif (array_key_exists($code, $this->formats))

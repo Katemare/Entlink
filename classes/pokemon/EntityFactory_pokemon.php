@@ -7,9 +7,7 @@ class EntityFactory_pokemon extends EntityFactory_combo
 	static $model=array(
 		'basic_form'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon',
-			'qlink'=>1,
-			'link_type'=>'B_is_basic_form_of_pokemon_A'
+			'type'=>'B_is_basic_form_of_pokemon_A'
 			),
 		'stage'=>array(
 			'table'=>'pokemon_main',
@@ -50,15 +48,15 @@ class EntityFactory_pokemon extends EntityFactory_combo
 			),
 		'type1'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'battle_type',
-			'qlink'=>1,
-			'link_type'=>'B_is_battle_type_of_pokemon_A'
+			'type'=>'B_is_battle_type_of_pokemon_A',
+			'method'=>'qlink',
+			'default'=>array('ord'=>1)
 			),
 		'type2'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'battle_type',
-			'qlink'=>1,
-			'link_type'=>'B_is_battle_type_of_pokemon_A'
+			'type'=>'B_is_battle_type_of_pokemon_A',
+			'method'=>'qlink',
+			'default'=>array('ord'=>2)
 			),
 		'height'=>array(
 			'table'=>'pokemon_main',
@@ -74,27 +72,25 @@ class EntityFactory_pokemon extends EntityFactory_combo
 			),
 		'area_group'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon_area',
-			'qlink'=>1,
-			'link_type'=>'B_is_area_group_of_pokemon_A'
+			'type'=>'B_is_area_group_of_pokemon_A',
+			'method'=>'qlink'
 			),			
 		'body_group'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon_body',
-			'qlink'=>1,
-			'link_type'=>'B_is_body_type_of_pokemon_A'
+			'type'=>'B_is_body_type_of_pokemon_A',
+			'method'=>'qlink'
 			),			
 		'breeding_group1'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon_breed',
-			'qlink'=>1,
-			'link_type'=>'B_is_breeding_group_of_pokemon_A'
+			'type'=>'B_is_breeding_group_of_pokemon_A',
+			'method'=>'qlink',
+			'default'=>array('ord'=>1)
 			),			
 		'breeding_group2'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon_breed',
-			'qlink'=>1,
-			'link_type'=>'B_is_breeding_group_of_pokemon_A'
+			'type'=>'B_is_breeding_group_of_pokemon_A',
+			'method'=>'qlink',
+			'default'=>array('ord'=>2)
 			),
 		'females'=>array(
 			'table'=>'pokemon_main',
@@ -102,9 +98,7 @@ class EntityFactory_pokemon extends EntityFactory_combo
 			),
 		'color'=>array(
 			'table'=>'pokemon_main',
-			'type'=>'pokemon_color',
-			'qlink'=>1,
-			'link_type'=>'B_is_color_of_pokemon_A'
+			'type'=>'B_is_color_of_pokemon_A'
 			),
 		'base_hp'=>array(
 			'table'=>'pokemon_main',
@@ -169,23 +163,20 @@ class EntityFactory_pokemon extends EntityFactory_combo
 		'pic_mini'=>array(
 			'table'=>'pokemon_main',
 			'type'=>'icon',
-			'field'=>'picIDmini',
-			'qlink'=>1,
-			'link_type'=>'B_is_icon_for_pokemon_A'
+			'field'=>'B_is_icon_for_pokemon_A',
+			'method'=>'qlink'
 			),
 		'pic_sprite'=>array(
 			'table'=>'pokemon_main',
 			'type'=>'sprite',
-			'field'=>'picIDsprite',
-			'qlink'=>1,
-			'link_type'=>'B_is_sprite_for_pokemon_A'
+			'field'=>'B_is_sprite_for_pokemon_A',
+			'method'=>'qlink'
 			),
 		'pic_art'=>array(
 			'table'=>'pokemon_main',
 			'type'=>'art',
-			'field'=>'picIDart',
-			'qlink'=>1,
-			'link_type'=>'B_is_art_for_pokemon_A'
+			'field'=>'B_is_art_for_pokemon_A',
+			'method'=>'qlink'
 			),
 		'naming'=>array(
 			'table'=>'pokemon_main',
@@ -210,7 +201,12 @@ class EntityFactory_pokemon extends EntityFactory_combo
 		'catch_rate'=>array(
 			'table'=>'pokemon_main',
 			'type'=>'pokemon_catch_rate',
-			)
+			),
+		'attacks'=>array(
+			'type'=>'B_is_attack_of_pokemon_A',
+			'list'=>1,
+			'list_entity'=>'attacks_list'
+		)
 	);
 }
 ?>

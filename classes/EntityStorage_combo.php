@@ -9,54 +9,51 @@ class EntityStorage_combo extends EntityStorage
 		else
 		{
 			$result=$this->owner->metadata['model'][$code];
-			if ($result['qlink']) $result['method']='uni';
+			if (array_key_exists('method', $result)) { }
 			elseif (array_key_exists('table', $result)) $result['method']='member';
 			else $result['method']='uni';
 		}
 		return $result;
 	}
 	
-	// получить сущность, связанную с владельцем отношением $link. Предполагается один ответ.
-	public function req_link($link, $context=null, $args='')
+	// получить сущность, связанную с владельцем отношением $member. Предполагается один ответ.
+	public function req_member($member_code, $context=null, $args='')
 	{
-		// STUB: здесь как-то должны подключаться модули. например, "комменты" скорее всего не занесены в модель комбинации. Иначе какой в ней смысл?
+		// STUB: здесь как-то должны подключаться модули. например, "комменты" скорее всего не занесены в модель комбинации. Иначе какой в ней (модели) смысл?
 		
-		$data=$this->analyzeModel($link);		
+		$data=$this->analyzeModel($member_code);
 		if ($data==='error') { } // ERR
-		elseif (($data['method']=='member')||($data['qlink'])||(!$data['multiple']))
+		elseif ($data['method']<>'list')
 		{
 			$entity=EntityFactory::create_blank(0, $data['type']);
-			
+			$this->members[$member_code]=$entity;
+			if ($data['method']=='member') $entity->storage='combo_member';
+			$entity->metadata['model']=$data;
+			$entity->prepare_storage();
+			$entity->storage->connection=$member_code;
+			$entity->storage->god=$this->owner;
+
 			if ($data['method']=='member')
 			{
-				$this->members[$link]=$entity;			
-				EntityRetriever::req($this->owner->uni, $data['table'], $entity );			
+				EntityRetriever::req($this->owner->uni, $data['table'], $entity);
 				// эта же функция сразу вызывает "данные получены!", если они действительно уже были получены.
-				$entity->storage='combo_member';
-				$entity->metadata['model']=$data;
-				$entity->prepare_storage();
-				$entity->storage->connection=$link;
-				$entity->storage->god=$this->owner;
 			}
-			elseif ($data['qlink'])
+			elseif ($data['method']=='qlink')
 			{
-				$link_entity=EntityFactory::create_blank(0, 'link');		
-				$link_entity->set_link($this->owner, $entity);
-				$this->members[$link]=$link_entity;				
-				$args['code']=$link;
-				EntityRetriever::req($this->owner->uni, $data['table'], array('entity'=>$this->owner, 'method'=>'follow_qlink', 'ask'=>'storage', 'context'=>$context, 'args'=>$args) );
-				// эта же функция сразу вызывает "данные получены!", если они действительно уже были получены.
+				$args['code']=$member_code;
+				EntityRetriever::req($this->owner->uni, $data['table'], array('entity'=>$this->owner, 'method'=>'follow_qlink', 'context'=>$context, 'args'=>$args) );
+				// эта же функция сразу вызывает "данные получены!", если они действительно уже были получены.			
 			}
 			elseif ($data['method']=='uni')
 			{
 				// STUB! скорее всего должно быть реализовано иначе.
-				$this->members[$link]=$entity;			
+				$this->members[$member_code]=$entity;			
 				$entity->req_dataset($context, $args);
 			}
 		}
-		elseif ( ($data['method']=='uni')&&(!$data['multiple']) ) // STUB!
+		elseif ( $data['method']=='list'
 		{
-			
+			// FIX
 		}
 		// else { } // ERR
 	}
@@ -64,23 +61,25 @@ class EntityStorage_combo extends EntityStorage
 	public function follow_qlink($tables, $context, $args)
 	{
 		// ERR
-		$link=$args['code'];
-		$data=$this->analyzeModel($link);
+		$member_code=$args['code'];
+		$data=$this->analyzeModel($member_code);
 		// if (!$data['qlink']) { } // ERR
 		$table=$data['table'];
 		$field=$data['field'];
-		if ($field=='') $field=$link;
-		$entity=$this->members[$link]->subentity();
+		if ($field=='') $field=$member_code;
+		
+		$link_entity=$this->members[$member_code];
 		
 		debug('follow: '.$table.'->'.$this->owner->uni.'->'.$field);
 		
-		$uni=EntityRetriever::$data[$table][$this->owner->uni][$field];
+		$subentity_uni=EntityRetriever::$data[$table][$this->owner->uni][$field];
 		// if ($uni<1) { } // ERR or OPTIONAL
-		$entity->setUni($uni);
-		$entity->req_dataset($context, $args);
+		$link_entity->set_link($this->owner, $subentity_uni);
+		unset($args['code']);
+		$link_entity->display($context, $args);
 	}
 	
-	public function get_linked($link, $context)
+	public function get_member($member_code, $context)
 	{
 		$data=$this->analyzeModel($link);
 		if ($data==='error') { } // ERR

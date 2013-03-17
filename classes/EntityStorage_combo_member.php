@@ -3,11 +3,11 @@ class EntityStorage_combo_member extends EntityStorage
 {
 	public $connection=null, $god=null;
 	
-	public function req_link($link, $context=null, $args='')
+	public function req_member($member, $context=null, $args='')
 	{
 	}
 	
-	public function get_linked($link, $context)
+	public function get_member($member_code, $context)
 	{
 	}
 	

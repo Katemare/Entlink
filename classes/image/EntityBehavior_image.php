@@ -29,9 +29,9 @@ class EntityBehavior_image extends EntityBehavior_work
 		elseif ($this->owner->metadata('ready'))
 		{
 			debug('making src');
-			$path=$this->owner->get_linked('path', $args); $path=$path->getValue();
-			$nam=$this->owner->get_linked('nam', $args); $nam=$nam->getValue();
-			// $thumb=$this->owner->get_linked('thumb', $args); $thumb=$thumb->getValue();
+			$path=$this->owner->get_member('path', $args); $path=$path->getValue();
+			$nam=$this->owner->get_member('nam', $args); $nam=$nam->getValue();
+			// $thumb=$this->owner->get_member('thumb', $args); $thumb=$thumb->getValue();
 			
 			if (substr($path, 0, 13)=='pictures/wiki') $src='http://wiki.pokeliga.com/'.substr($path, 13).'/'.$nam;
 			else $pic='/'.$path.'/'./*safelink*/($nam); // STUB

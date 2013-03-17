@@ -116,10 +116,13 @@ class Entity
 		return null;
 	}
 	
+	// допустимые источники данных:
+	// default - значения по умолчанию. не проверяются на валидность и безопасность, так как уже были проверены создателем модуля или средствами редактирования модуля.
+	// DB - из базы данных. не проверяется на валидность и безопасность, так как уже были проверены при добавлении в БД.
+	// update - изменение данных в процессе прогона программы. не сохраняется в метаданные, но видно по changed.
+	// input - пользовательский ввод. проверяется на валидность и безопасность.
 	public function setValue($value, $source, $rewrite=true)
 	{
-		if ($rewrite) $this->data=array();
-		
 		if (is_null($source))
 		{
 			$this->metadata['got_data']=false;
@@ -129,20 +132,29 @@ class Entity
 		if (!is_array($value)) $set=array('value'=>$value);
 		else $set=$value;
 		$changed=false;
-		if ( (!is_null($this->metadata['source'])) && ($source<>'update') )
+		if (($source=='update')||($source=='input')&&(!$this->metadata['changed']))
 		{
 			foreach ($set as $key=>$val)
 			{
 				if ($this->data[$key]!==$val)
 				{
-					$changed=true;
+					$changed=1;
 					break;
 				}
 			}
+			
+			if (($rewrite)&&(!$changed))
+			{
+				$diff=array_diff(array_keys($this->data), array_keys($set));
+				if (count($diff)>0) $changed=1;
+			}
 		}
+		else $changed=$this->metadata['changed'];
+		
+		if (($rewrite)&&($changed)) $this->data=$set;
+		elseif ((!$rewrite)&&($changed)) $this->data=array_merge($this->data, $set);
+		
 		$this->metadata['changed']=$changed;
-		$this->metadata['got_data']=true;
-		$this->data=array_merge($this->data, $set);
 		$this->setSource($source);
 	}
 	

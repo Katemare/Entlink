@@ -1,5 +1,5 @@
 <?
-class EntityBehavior_link_list_item extends EntityBehavior_link
+class EntityBehavior_variant extends EntityBehavior
 {
 	static $def_formats=array(
 		'input'=>array('behavior', 'select'),
@@ -10,6 +10,10 @@ class EntityBehavior_link_list_item extends EntityBehavior_link
 	{
 		parent::__construct();
 		$this->formats=array_merge($this->formats, self::$def_formats);
+	}
+	
+	public function select($args, $context)
+	{
 	}
 	
 	public function check_safe($make=false)

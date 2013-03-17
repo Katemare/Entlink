@@ -22,13 +22,13 @@ class EntityFactory_battle_type extends EntityFactory_combo
 		'special'=>array(
 			'table'=>'type_def',
 			'type'=>'effect_category',
-			'qlink'=>1,
+			'method'=>'qlink',
 			'link_type'=>'B_is_effect_category_of_A'
 			),
 		'icon'=>array(
 			'table'=>'type_def',
 			'type'=>'icon',
-			'qlink'=>1,
+			'method'=>'qlink',
 			'link_type'=>'B_is_icon_of_A'
 			)
 	);	
